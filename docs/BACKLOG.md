@@ -12,3 +12,12 @@
 
 - Considerations: multi-tenant data isolation, cooperative-specific governance, permissions and roles, UI for cooperative selection and onboarding.
 - Potential follow-ups: design doc, database schema changes, contract updates, UI/UX mockups.
+
+## Real-time certificate alerts
+
+- Description: Add real-time alerts when certificate status changes (e.g. issuance, verification failure, expiry, retirement).
+- Acceptance Criteria:
+  - Backlog entry created for planning
+  - High-level scope identified (notification channels, event sources, delivery guarantees)
+- Notes:
+  - Recreated without labels after earlier label errors.
