@@ -59,7 +59,17 @@ pub struct AuditAnchor {
     pub anchored_at_ledger: u32,
 }
 
-    /// Enumeration of all storage keys used by this contract.
+/// Consolidated read-only view of anchor status for a reading hash.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AnchorStatus {
+    /// Whether `reading_hash` has been anchored.
+    pub is_anchored: bool,
+    /// Ledger sequence at anchor time; `0` when `is_anchored` is `false`.
+    pub anchored_at_ledger: u32,
+}
+
+/// Enumeration of all storage keys used by this contract.
 #[contracttype]
 pub enum DataKey {
     /// `Address` — the contract administrator.
@@ -175,6 +185,15 @@ impl AuditRegistry {
         ((b0 << 8) | b1) % 1024
     }
 
+    fn lookup_ledger(env: Env, reading_hash: BytesN<32>) -> Option<u32> {
+        let bucket_id = Self::get_bucket_id(&reading_hash);
+        let bucket: Map<BytesN<32>, u32> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Bucket(bucket_id))?;
+        bucket.get(reading_hash)
+    }
+
     /// Anchor a reading hash on-chain. Only the registered `api_signer` may call this.
     ///
     /// # Arguments
@@ -266,9 +285,7 @@ impl AuditRegistry {
     /// }
     /// ```
     pub fn verify(env: Env, reading_hash: BytesN<32>) -> Option<AuditAnchor> {
-        let bucket_id = Self::get_bucket_id(&reading_hash);
-        let bucket: Map<BytesN<32>, u32> = env.storage().persistent().get(&DataKey::Bucket(bucket_id))?;
-        let anchored_at_ledger = bucket.get(reading_hash.clone())?;
+        let anchored_at_ledger = Self::lookup_ledger(env.clone(), reading_hash.clone())?;
         Some(AuditAnchor {
             reading_hash,
             anchored_at_ledger,
@@ -277,12 +294,36 @@ impl AuditRegistry {
 
     /// Returns `true` if `reading_hash` has been anchored, `false` otherwise.
     pub fn is_anchored(env: Env, reading_hash: BytesN<32>) -> bool {
-        let bucket_id = Self::get_bucket_id(&reading_hash);
-        let bucket: Option<Map<BytesN<32>, u32>> = env.storage().persistent().get(&DataKey::Bucket(bucket_id));
-        match bucket {
-            Some(b) => b.contains_key(reading_hash),
-            None => false,
+        Self::lookup_ledger(env, reading_hash).is_some()
+    }
+
+    /// Returns consolidated anchor status for `reading_hash` in a single call.
+    ///
+    /// Prefer this over separate `is_anchored` + `verify` calls when you need
+    /// both the presence flag and the anchor ledger sequence.
+    pub fn anchor_status(env: Env, reading_hash: BytesN<32>) -> AnchorStatus {
+        match Self::lookup_ledger(env, reading_hash) {
+            Some(anchored_at_ledger) => AnchorStatus {
+                is_anchored: true,
+                anchored_at_ledger,
+            },
+            None => AnchorStatus {
+                is_anchored: false,
+                anchored_at_ledger: 0,
+            },
         }
+    }
+
+    /// Returns the ledger sequence at which `reading_hash` was anchored.
+    ///
+    /// Returns `None` when the hash has not been anchored.
+    pub fn anchored_at_ledger(env: Env, reading_hash: BytesN<32>) -> Option<u32> {
+        Self::lookup_ledger(env, reading_hash)
+    }
+
+    /// Returns the persistent storage bucket index (0–1023) for `reading_hash`.
+    pub fn bucket_for_hash(_env: Env, reading_hash: BytesN<32>) -> u32 {
+        Self::get_bucket_id(&reading_hash)
     }
 
     /// Returns the total number of reading hashes anchored so far.
@@ -336,11 +377,13 @@ impl AuditRegistry {
         max_extension: u32,
     ) {
         Self::require_admin(&env);
-        env.storage().persistent().extend_ttl_with_limits(
+        if extend_to < min_extension || extend_to > max_extension {
+            return;
+        }
+        env.storage().persistent().extend_ttl(
             &DataKey::Bucket(bucket_id),
-            extend_to,
             min_extension,
-            max_extension,
+            extend_to,
         );
     }
 
@@ -364,9 +407,12 @@ impl AuditRegistry {
         max_extension: u32,
     ) {
         Self::require_admin(&env);
+        if extend_to < min_extension || extend_to > max_extension {
+            return;
+        }
         env.storage()
             .instance()
-            .extend_ttl_with_limits(extend_to, min_extension, max_extension);
+            .extend_ttl(min_extension, extend_to);
     }
 }
 
@@ -377,7 +423,12 @@ impl AuditRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::{testutils::Address as _, Env};
+    use soroban_sdk::{
+        testutils::storage::{Instance, Persistent},
+        testutils::Address as _,
+        testutils::Ledger,
+        Env,
+    };
 
     fn setup() -> (Env, soroban_sdk::Address, AuditRegistryClient<'static>) {
         let env = Env::default();
@@ -510,8 +561,11 @@ mod tests {
     fn test_total_anchors_increments() {
         let (env, api_signer, client) = setup();
         for i in 0u8..5 {
-            client
-                .anchor(&api_signer, &BytesN::from_array(&env, &[i; 32]), &make_nonce(&env, i));
+            client.anchor(
+                &api_signer,
+                &BytesN::from_array(&env, &[i; 32]),
+                &make_nonce(&env, i),
+            );
         }
         assert_eq!(client.total_anchors(), 5);
     }
@@ -593,29 +647,64 @@ mod tests {
     #[test]
     fn test_extend_bucket_ttl() {
         let (env, api_signer, client) = setup();
+        let contract_id = client.address.clone();
         let h = hash(&env);
         let n = make_nonce(&env, 1);
-        client.anchor(&api_signer, &h, &n).unwrap();
+        client.anchor(&api_signer, &h, &n);
         let bucket_id = AuditRegistry::get_bucket_id(&h);
-        let before = env
-            .storage()
-            .persistent()
-            .get_ttl(&DataKey::Bucket(bucket_id));
-        client.extend_bucket_ttl(bucket_id, u32::MAX, before + 50);
-        let after = env
-            .storage()
-            .persistent()
-            .get_ttl(&DataKey::Bucket(bucket_id));
+        let before = env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .get_ttl(&DataKey::Bucket(bucket_id))
+        });
+        client.extend_bucket_ttl(&bucket_id, &before, &(before + 50));
+        let after = env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .get_ttl(&DataKey::Bucket(bucket_id))
+        });
         assert!(after >= before);
     }
 
     #[test]
     fn test_extend_contract_ttl() {
         let (env, _api_signer, client) = setup();
-        let before = env.storage().instance().get_ttl();
-        client.extend_contract_ttl(u32::MAX, before + 50);
-        let after = env.storage().instance().get_ttl();
+        let contract_id = client.address.clone();
+        let before = env.as_contract(&contract_id, || env.storage().instance().get_ttl());
+        client.extend_contract_ttl(&before, &(before + 50));
+        let after = env.as_contract(&contract_id, || env.storage().instance().get_ttl());
         assert!(after >= before);
+    }
+
+    #[test]
+    fn test_anchor_status_not_anchored() {
+        let (env, _api_signer, client) = setup();
+        let h = BytesN::from_array(&env, &[9u8; 32]);
+        assert_eq!(
+            client.anchor_status(&h),
+            AnchorStatus {
+                is_anchored: false,
+                anchored_at_ledger: 0,
+            }
+        );
+        assert!(client.anchored_at_ledger(&h).is_none());
+    }
+
+    #[test]
+    fn test_anchor_status_after_anchor() {
+        let (env, api_signer, client) = setup();
+        env.ledger().set_sequence_number(42);
+        let h = hash(&env);
+        client.anchor(&api_signer, &h, &make_nonce(&env, 1));
+        assert_eq!(
+            client.anchor_status(&h),
+            AnchorStatus {
+                is_anchored: true,
+                anchored_at_ledger: 42,
+            }
+        );
+        assert_eq!(client.anchored_at_ledger(&h), Some(42));
+        assert_eq!(client.bucket_for_hash(&h), AuditRegistry::get_bucket_id(&h));
     }
 
     #[test]
@@ -627,60 +716,17 @@ mod tests {
         let mut h1_arr = [0u8; 32];
         h1_arr[2] = 1;
         let h1 = BytesN::from_array(&env, &h1_arr);
-        
+
         let mut h2_arr = [0u8; 32];
         h2_arr[2] = 2;
         let h2 = BytesN::from_array(&env, &h2_arr);
-        
+
         client.anchor(&api_signer, &h1, &make_nonce(&env, 1));
         client.anchor(&api_signer, &h2, &make_nonce(&env, 2));
-        
+
         assert!(client.is_anchored(&h1));
         assert!(client.is_anchored(&h2));
         assert_eq!(client.total_anchors(), 2);
-    }
-
-    #[test]
-    fn test_admin_lookup() {
-        let (env, client) = setup();
-        let admin = client.admin();
-        assert_eq!(admin, Address::generate(&env));
-    }
-
-    // --- Invariant: zero and negative kwh_stroops must be rejected ---
-
-    #[test]
-    #[should_panic(expected = "kwh must be positive")]
-    fn test_zero_kwh_rejected() {
-        let (env, client) = setup();
-        let signer = soroban_sdk::testutils::ed25519::Signer::generate(&env);
-        let reading_hash = BytesN::from_array(&env, &[2u8; 32]);
-        let sig = signer.sign(&env, &Bytes::from_slice(&env, reading_hash.to_array().as_ref()));
-        client.anchor(
-            &reading_hash,
-            &signer.public_key(&env),
-            &sig,
-            &0_i128,
-            &soroban_sdk::String::from_str(&env, "METER-001"),
-            &1_700_000_000_u64,
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "kwh must be positive")]
-    fn test_negative_kwh_rejected() {
-        let (env, client) = setup();
-        let signer = soroban_sdk::testutils::ed25519::Signer::generate(&env);
-        let reading_hash = BytesN::from_array(&env, &[3u8; 32]);
-        let sig = signer.sign(&env, &Bytes::from_slice(&env, reading_hash.to_array().as_ref()));
-        client.anchor(
-            &reading_hash,
-            &signer.public_key(&env),
-            &sig,
-            &-1_i128,
-            &soroban_sdk::String::from_str(&env, "METER-001"),
-            &1_700_000_000_u64,
-        );
     }
 }
 

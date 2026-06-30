@@ -6,8 +6,8 @@
 
 #![cfg(test)]
 
-use audit_registry::{AuditRegistry, AuditRegistryClient, Error};
-use soroban_sdk::{testutils::Address as _, Address, BytesN, Env};
+use crate::{AnchorStatus, AuditRegistry, AuditRegistryClient, Error};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger, Address, BytesN, Env};
 
 fn setup() -> (Env, Address, AuditRegistryClient<'static>) {
     let env = Env::default();
@@ -24,6 +24,10 @@ fn make_hash(env: &Env, byte: u8) -> BytesN<32> {
     BytesN::from_array(env, &[byte; 32])
 }
 
+fn make_nonce(env: &Env, val: u8) -> BytesN<32> {
+    BytesN::from_array(env, &[val; 32])
+}
+
 // ── verify returns None before anchoring ─────────────────────────────────────
 
 #[test]
@@ -38,7 +42,7 @@ fn verify_returns_none_for_unanchored_hash() {
 fn verify_returns_anchor_with_correct_reading_hash() {
     let (env, signer, client) = setup();
     let h = make_hash(&env, 0x42);
-    client.anchor(&signer, &h).unwrap();
+    client.anchor(&signer, &h, &make_nonce(&env, 1));
     let anchor = client.verify(&h).expect("must be Some after anchor");
     assert_eq!(anchor.reading_hash, h);
 }
@@ -46,10 +50,9 @@ fn verify_returns_anchor_with_correct_reading_hash() {
 #[test]
 fn verify_records_ledger_sequence_at_anchor_time() {
     let (env, signer, client) = setup();
-    // Advance ledger to a known sequence
-    env.ledger().with_mut(|l| l.sequence_number = 999);
+    env.ledger().set_sequence_number(999);
     let h = make_hash(&env, 0x10);
-    client.anchor(&signer, &h).unwrap();
+    client.anchor(&signer, &h, &make_nonce(&env, 1));
     let anchor = client.verify(&h).expect("must be Some");
     assert_eq!(anchor.anchored_at_ledger, 999);
 }
@@ -57,13 +60,11 @@ fn verify_records_ledger_sequence_at_anchor_time() {
 #[test]
 fn verify_ledger_sequence_is_not_current_ledger_if_anchored_earlier() {
     let (env, signer, client) = setup();
-    env.ledger().with_mut(|l| l.sequence_number = 100);
+    env.ledger().set_sequence_number(100);
     let h = make_hash(&env, 0x20);
-    client.anchor(&signer, &h).unwrap();
-    // Advance ledger after anchoring
-    env.ledger().with_mut(|l| l.sequence_number = 500);
+    client.anchor(&signer, &h, &make_nonce(&env, 1));
+    env.ledger().set_sequence_number(500);
     let anchor = client.verify(&h).expect("must be Some");
-    // anchored_at_ledger must reflect the time of anchor, not the current ledger
     assert_eq!(anchor.anchored_at_ledger, 100);
 }
 
@@ -73,7 +74,7 @@ fn verify_ledger_sequence_is_not_current_ledger_if_anchored_earlier() {
 fn verify_is_idempotent() {
     let (env, signer, client) = setup();
     let h = make_hash(&env, 0x55);
-    client.anchor(&signer, &h).unwrap();
+    client.anchor(&signer, &h, &make_nonce(&env, 1));
     let a1 = client.verify(&h).expect("first verify must be Some");
     let a2 = client.verify(&h).expect("second verify must be Some");
     assert_eq!(a1.reading_hash, a2.reading_hash);
@@ -87,10 +88,10 @@ fn verify_distinguishes_two_hashes() {
     let (env, signer, client) = setup();
     let h1 = make_hash(&env, 0xAA);
     let h2 = make_hash(&env, 0xBB);
-    env.ledger().with_mut(|l| l.sequence_number = 1);
-    client.anchor(&signer, &h1).unwrap();
-    env.ledger().with_mut(|l| l.sequence_number = 2);
-    client.anchor(&signer, &h2).unwrap();
+    env.ledger().set_sequence_number(1);
+    client.anchor(&signer, &h1, &make_nonce(&env, 1));
+    env.ledger().set_sequence_number(2);
+    client.anchor(&signer, &h2, &make_nonce(&env, 2));
 
     let a1 = client.verify(&h1).expect("h1 must be anchored");
     let a2 = client.verify(&h2).expect("h2 must be anchored");
@@ -105,17 +106,44 @@ fn verify_distinguishes_two_hashes() {
 #[test]
 fn verify_unchanged_after_rejected_duplicate_anchor() {
     let (env, signer, client) = setup();
-    env.ledger().with_mut(|l| l.sequence_number = 10);
+    env.ledger().set_sequence_number(10);
     let h = make_hash(&env, 0x77);
-    client.anchor(&signer, &h).unwrap();
+    client.anchor(&signer, &h, &make_nonce(&env, 1));
 
-    // second anchor attempt must fail
-    env.ledger().with_mut(|l| l.sequence_number = 20);
-    assert_eq!(client.anchor(&signer, &h), Err(Error::AlreadyAnchored));
+    env.ledger().set_sequence_number(20);
+    assert_eq!(
+        client.try_anchor(&signer, &h, &make_nonce(&env, 2)),
+        Err(Ok(Error::AlreadyAnchored))
+    );
 
-    // verify must still return the original anchor (ledger 10, not 20)
     let anchor = client.verify(&h).expect("must still be anchored");
     assert_eq!(anchor.anchored_at_ledger, 10);
+}
+
+// ── anchor_status helper view ────────────────────────────────────────────────
+
+#[test]
+fn anchor_status_matches_verify() {
+    let (env, signer, client) = setup();
+    let h = make_hash(&env, 0x33);
+    assert_eq!(
+        client.anchor_status(&h),
+        AnchorStatus {
+            is_anchored: false,
+            anchored_at_ledger: 0,
+        }
+    );
+
+    env.ledger().set_sequence_number(77);
+    client.anchor(&signer, &h, &make_nonce(&env, 1));
+    assert_eq!(
+        client.anchor_status(&h),
+        AnchorStatus {
+            is_anchored: true,
+            anchored_at_ledger: 77,
+        }
+    );
+    assert_eq!(client.anchored_at_ledger(&h), Some(77));
 }
 
 // ── boundary hash values ──────────────────────────────────────────────────────
@@ -124,7 +152,7 @@ fn verify_unchanged_after_rejected_duplicate_anchor() {
 fn verify_works_with_all_zeros_hash() {
     let (env, signer, client) = setup();
     let h = BytesN::from_array(&env, &[0x00u8; 32]);
-    client.anchor(&signer, &h).unwrap();
+    client.anchor(&signer, &h, &make_nonce(&env, 1));
     assert!(client.verify(&h).is_some());
 }
 
@@ -132,6 +160,6 @@ fn verify_works_with_all_zeros_hash() {
 fn verify_works_with_all_ones_hash() {
     let (env, signer, client) = setup();
     let h = BytesN::from_array(&env, &[0xFFu8; 32]);
-    client.anchor(&signer, &h).unwrap();
+    client.anchor(&signer, &h, &make_nonce(&env, 1));
     assert!(client.verify(&h).is_some());
 }
