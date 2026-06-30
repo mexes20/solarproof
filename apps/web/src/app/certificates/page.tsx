@@ -9,6 +9,7 @@ import { TransferModal } from '@/components/transfer-modal'
 import { useToast } from '@/components/toast'
 import { useWallet } from '@/hooks/useWallet'
 import { WalletGate } from '@/components/wallet-gate'
+import { TableRowSkeleton } from '@/components/skeleton'
 
 const MAX_BULK = 100
 
@@ -346,11 +347,11 @@ export default function CertificatesPage() {
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                 {isLoading ? (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-400">
-                      Loading…
-                    </td>
-                  </tr>
+                  <>
+                    {Array.from({ length: 8 }).map((_, i) => (
+                      <TableRowSkeleton key={i} cols={7} />
+                    ))}
+                  </>
                 ) : data.length > 0 ? (
                   data.map((cert) => (
                     <tr key={cert.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40">

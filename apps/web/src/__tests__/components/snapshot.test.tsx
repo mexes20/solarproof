@@ -11,6 +11,8 @@ import {
   ChartSkeleton,
   TableRowSkeleton,
   SectionSkeleton,
+  ProposalCardSkeleton,
+  ProposalListSkeleton,
 } from '@/components/skeleton'
 import { MeterReadingRow } from '@/components/meter-reading-row'
 import { CopyButton, CopyableText } from '@/components/copy-button'
@@ -131,6 +133,16 @@ describe('Skeleton components snapshots', () => {
 
   it('SectionSkeleton renders correctly (2 rows)', () => {
     const { container } = render(<SectionSkeleton rows={2} />)
+    expect(container.firstChild).toMatchSnapshot()
+  })
+
+  it('ProposalCardSkeleton renders correctly', () => {
+    const { container } = render(<ProposalCardSkeleton />)
+    expect(container.firstChild).toMatchSnapshot()
+  })
+
+  it('ProposalListSkeleton renders correctly', () => {
+    const { container } = render(<ProposalListSkeleton count={2} />)
     expect(container.firstChild).toMatchSnapshot()
   })
 })

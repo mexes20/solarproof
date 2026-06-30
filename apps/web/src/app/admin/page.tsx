@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ShieldOff, ShieldCheck, Zap, Award, Activity } from 'lucide-react'
+import { StatCardSkeleton, TableRowSkeleton } from '@/components/skeleton'
 
 interface Operator {
   id: string
@@ -158,22 +159,32 @@ export default function AdminPage() {
         <h2 id="stats-heading" className="mb-4 text-lg font-semibold text-gray-900 dark:text-gray-100">
           System stats
         </h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <StatCard
-            label="Total kWh anchored"
-            value={statsLoading ? '…' : (stats?.total_kwh.toFixed(3) ?? '—')}
-            icon={Zap}
-          />
-          <StatCard
-            label="Total certificates"
-            value={statsLoading ? '…' : (stats?.total_certificates.toLocaleString() ?? '—')}
-            icon={Award}
-          />
-          <StatCard
-            label="Active meters"
-            value={statsLoading ? '…' : (stats?.active_meters.toLocaleString() ?? '—')}
-            icon={Activity}
-          />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3" aria-busy={statsLoading}>
+          {statsLoading ? (
+            <>
+              <StatCardSkeleton />
+              <StatCardSkeleton />
+              <StatCardSkeleton />
+            </>
+          ) : (
+            <>
+              <StatCard
+                label="Total kWh anchored"
+                value={stats?.total_kwh.toFixed(3) ?? '—'}
+                icon={Zap}
+              />
+              <StatCard
+                label="Total certificates"
+                value={stats?.total_certificates.toLocaleString() ?? '—'}
+                icon={Award}
+              />
+              <StatCard
+                label="Active meters"
+                value={stats?.active_meters.toLocaleString() ?? '—'}
+                icon={Activity}
+              />
+            </>
+          )}
         </div>
       </section>
 
@@ -208,9 +219,11 @@ export default function AdminPage() {
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
               {opsLoading ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-gray-500">Loading…</td>
-                </tr>
+                <>
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <TableRowSkeleton key={i} cols={5} />
+                  ))}
+                </>
               ) : operators && operators.length > 0 ? (
                 operators.map((op) => (
                   <tr key={op.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40">

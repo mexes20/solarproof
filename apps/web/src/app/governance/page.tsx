@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Vote, Plus, Clock, CheckCircle, XCircle, Minus, ChevronDown, ChevronUp } from 'lucide-react'
 import { useWallet } from '@/hooks/useWallet'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { ProposalListSkeleton } from '@/components/skeleton'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -455,11 +456,7 @@ export default function GovernancePage() {
       )}
 
       {isLoading ? (
-        <div className="space-y-4">
-          {[1, 2].map((i) => (
-            <div key={i} className="h-40 animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800" />
-          ))}
-        </div>
+        <ProposalListSkeleton count={2} />
       ) : active.length > 0 ? (
         <section aria-labelledby="active-heading" className="mb-8">
           <h2 id="active-heading" className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">

@@ -85,6 +85,45 @@ export function CertificateListSkeleton({ count = 6 }: { count?: number }) {
   )
 }
 
+/** Skeleton that matches a governance proposal card */
+export function ProposalCardSkeleton() {
+  return (
+    <div
+      aria-hidden="true"
+      className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-900"
+    >
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div className="flex-1 space-y-2">
+          <Skeleton className="h-5 w-16 rounded-full" />
+          <Skeleton className="h-4 w-3/4 max-w-xs" />
+        </div>
+        <Skeleton className="h-8 w-8 shrink-0 rounded-md" />
+      </div>
+      <Skeleton className="mb-3 h-2 w-full rounded-full" />
+      <div className="flex gap-4">
+        <Skeleton className="h-3 w-20" />
+        <Skeleton className="h-3 w-24" />
+        <Skeleton className="h-3 w-20" />
+      </div>
+    </div>
+  )
+}
+
+/** Skeleton for the governance proposals list */
+export function ProposalListSkeleton({ count = 2 }: { count?: number }) {
+  return (
+    <div
+      aria-busy="true"
+      aria-label="Loading proposals"
+      className="space-y-4"
+    >
+      {Array.from({ length: count }).map((_, i) => (
+        <ProposalCardSkeleton key={i} />
+      ))}
+    </div>
+  )
+}
+
 /** Skeleton for a Section/Row panel (verify page style) */
 export function SectionSkeleton({ rows = 4 }: { rows?: number }) {
   return (

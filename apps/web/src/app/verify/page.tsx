@@ -204,7 +204,11 @@ export default function VerifyPage() {
       )}
 
       {loading && (
-        <div className="space-y-4" aria-label="Loading verification results">
+        <div
+          className="space-y-4"
+          aria-busy="true"
+          aria-label="Loading verification results"
+        >
           <SectionSkeleton rows={5} />
         </div>
       )}
