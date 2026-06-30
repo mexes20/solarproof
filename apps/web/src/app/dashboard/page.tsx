@@ -16,6 +16,7 @@ import {
 } from 'recharts'
 import { useTheme } from 'next-themes'
 import { Zap, Award, Leaf, TrendingUp, Download } from 'lucide-react'
+import { AccessibleLegend } from '@/components/accessible-chart-legend'
 import { StatCardSkeleton, ChartSkeleton, TableRowSkeleton } from '@/components/skeleton'
 import { useState, useMemo } from 'react'
 import { useRealtimeReadings } from '@/hooks/use-realtime-readings'
@@ -61,6 +62,43 @@ interface AnalyticsResponse {
 }
 
 type Period = 'day' | 'month' | 'year'
+
+const RANGE_LABELS: Record<'30d' | '90d' | 'ytd' | 'all', string> = {
+  '30d': 'last 30 days',
+  '90d': 'last 90 days',
+  ytd: 'year to date',
+  all: 'all time',
+}
+
+function describeTrendPeriod(trends: TrendBucket[] | undefined, rangeLabel: string): string {
+  if (!trends?.length) return `No data available for the ${rangeLabel} period.`
+  const first = new Date(trends[0].bucket).toLocaleDateString()
+  const last = new Date(trends[trends.length - 1].bucket).toLocaleDateString()
+  return `${trends.length} periods from ${first} to ${last}.`
+}
+
+function describeGenerationTrend(trends: TrendBucket[] | undefined, range: '30d' | '90d' | 'ytd' | 'all'): string {
+  const rangeLabel = RANGE_LABELS[range]
+  const period = describeTrendPeriod(trends, rangeLabel)
+  const totalKwh = (trends ?? []).reduce((sum, bucket) => sum + bucket.kwh, 0)
+  const totalText = trends?.length ? ` Total generation shown: ${totalKwh.toLocaleString()} kWh.` : ''
+  return `Area chart of cooperative energy output in kilowatt-hours over the ${rangeLabel}. ${period}${totalText}`
+}
+
+function describeCertificateActivity(
+  trends: TrendBucket[] | undefined,
+  range: '30d' | '90d' | 'ytd' | 'all',
+  granularity: Period,
+): string {
+  const rangeLabel = RANGE_LABELS[range]
+  const period = describeTrendPeriod(trends, rangeLabel)
+  const issued = (trends ?? []).reduce((sum, bucket) => sum + bucket.certs_issued, 0)
+  const retired = (trends ?? []).reduce((sum, bucket) => sum + bucket.certs_retired, 0)
+  const totalsText = trends?.length
+    ? ` Totals in view: ${issued.toLocaleString()} issued and ${retired.toLocaleString()} retired.`
+    : ''
+  return `Line chart comparing certificates issued and retired over the ${rangeLabel}, grouped by ${granularity}.${period ? ` ${period}` : ''}${totalsText}`
+}
 
 // ---------------------------------------------------------------------------
 // Fetch helpers
@@ -272,73 +310,108 @@ export default function DashboardPage() {
       <section className="mb-8 grid gap-6 lg:grid-cols-2">
         {/* Generation Trend */}
         <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900">
-          <div className="mb-6 flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Generation trend</h3>
-              <p className="text-xs text-gray-500">kWh output over time</p>
+          <figure aria-labelledby="generation-trend-title" aria-describedby="generation-trend-desc">
+            <div className="mb-6 flex items-center justify-between">
+              <div>
+                <h3 id="generation-trend-title" className="text-sm font-semibold text-gray-900 dark:text-gray-100">Generation trend</h3>
+                <p className="text-xs text-gray-500">kWh output over time</p>
+              </div>
+              <button
+                onClick={() => exportCsv(analytics?.trends || [], 'generation-trends.csv')}
+                className="rounded-md border border-gray-200 p-1.5 text-gray-500 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400"
+                aria-label="Export generation trend data as CSV"
+              >
+                <Download className="h-4 w-4" aria-hidden="true" />
+              </button>
             </div>
-            <button
-              onClick={() => exportCsv(analytics?.trends || [], 'generation-trends.csv')}
-              className="rounded-md border border-gray-200 p-1.5 text-gray-500 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400"
+            <p id="generation-trend-desc" className="sr-only">
+              {describeGenerationTrend(analytics?.trends, range)}
+            </p>
+            <p id="generation-trend-legend" className="sr-only">
+              Legend: kWh generation, shown as an amber filled area.
+            </p>
+            <div
+              className="h-64 w-full"
+              role="img"
+              aria-labelledby="generation-trend-title"
+              aria-describedby="generation-trend-desc generation-trend-legend"
             >
-              <Download className="h-4 w-4" />
-            </button>
-          </div>
-          <div className="h-64 w-full">
-            {analyticsLoading ? <ChartSkeleton /> : (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={colors.grid} vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 11, fill: colors.text }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: colors.text }} axisLine={false} tickLine={false} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: colors.tooltip.bg, border: `1px solid ${colors.tooltip.border}`, borderRadius: '8px', fontSize: '12px' }}
-                  />
-                  <Area type="monotone" dataKey="kwh" stroke={colors.area} fill={colors.areaFill} strokeWidth={2} name="kWh" />
-                </AreaChart>
-              </ResponsiveContainer>
-            )}
-          </div>
+              {analyticsLoading ? <ChartSkeleton title="Generation trend" /> : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={colors.grid} vertical={false} />
+                    <XAxis dataKey="date" tick={{ fontSize: 11, fill: colors.text }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: colors.text }} axisLine={false} tickLine={false} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: colors.tooltip.bg, border: `1px solid ${colors.tooltip.border}`, borderRadius: '8px', fontSize: '12px' }}
+                    />
+                    <Area type="monotone" dataKey="kwh" stroke={colors.area} fill={colors.areaFill} strokeWidth={2} name="kWh" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </figure>
         </div>
 
         {/* Issuance vs Retirement */}
         <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900">
-          <div className="mb-6 flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Certificates activity</h3>
-              <p className="text-xs text-gray-500">Issued vs retired trends</p>
+          <figure aria-labelledby="certs-activity-title" aria-describedby="certs-activity-desc">
+            <div className="mb-6 flex items-center justify-between">
+              <div>
+                <h3 id="certs-activity-title" className="text-sm font-semibold text-gray-900 dark:text-gray-100">Certificates activity</h3>
+                <p className="text-xs text-gray-500">Issued vs retired trends</p>
+              </div>
+              <fieldset className="flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 dark:border-gray-700 dark:bg-gray-800">
+                <legend className="sr-only">Certificate activity time grouping</legend>
+                {(['day', 'month'] as const).map((g) => (
+                  <button
+                    key={g}
+                    onClick={() => setGranularity(g)}
+                    className={`rounded-md px-2 py-0.5 text-[10px] font-bold uppercase transition-colors ${
+                      granularity === g ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-100' : 'text-gray-500'
+                    }`}
+                  >
+                    {g}
+                  </button>
+                ))}
+              </fieldset>
             </div>
-            <fieldset className="flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 dark:border-gray-700 dark:bg-gray-800">
-              {(['day', 'month'] as const).map((g) => (
-                <button
-                  key={g}
-                  onClick={() => setGranularity(g)}
-                  className={`rounded-md px-2 py-0.5 text-[10px] font-bold uppercase transition-colors ${
-                    granularity === g ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-100' : 'text-gray-500'
-                  }`}
-                >
-                  {g}
-                </button>
-              ))}
-            </fieldset>
-          </div>
-          <div className="h-64 w-full">
-            {analyticsLoading ? <ChartSkeleton /> : (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={colors.grid} vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 11, fill: colors.text }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: colors.text }} axisLine={false} tickLine={false} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: colors.tooltip.bg, border: `1px solid ${colors.tooltip.border}`, borderRadius: '8px', fontSize: '12px' }}
-                  />
-                  <Legend iconType="circle" wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
-                  <Line type="monotone" dataKey="certs_issued" stroke={colors.line1} strokeWidth={2} dot={false} name="Issued" />
-                  <Line type="monotone" dataKey="certs_retired" stroke={colors.line2} strokeWidth={2} dot={false} name="Retired" />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </div>
+            <p id="certs-activity-desc" className="sr-only">
+              {describeCertificateActivity(analytics?.trends, range, granularity)}
+            </p>
+            <div
+              className="h-64 w-full"
+              role="img"
+              aria-labelledby="certs-activity-title"
+              aria-describedby="certs-activity-desc"
+            >
+              {analyticsLoading ? <ChartSkeleton title="Certificates activity" /> : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={colors.grid} vertical={false} />
+                    <XAxis dataKey="date" tick={{ fontSize: 11, fill: colors.text }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: colors.text }} axisLine={false} tickLine={false} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: colors.tooltip.bg, border: `1px solid ${colors.tooltip.border}`, borderRadius: '8px', fontSize: '12px' }}
+                    />
+                    <Legend
+                      content={(props) => (
+                        <AccessibleLegend
+                          {...props}
+                          items={[
+                            { value: 'Issued', description: 'Issued: certificates minted in each period, shown as a green line' },
+                            { value: 'Retired', description: 'Retired: certificates burned in each period, shown as a red line' },
+                          ]}
+                        />
+                      )}
+                    />
+                    <Line type="monotone" dataKey="certs_issued" stroke={colors.line1} strokeWidth={2} dot={false} name="Issued" />
+                    <Line type="monotone" dataKey="certs_retired" stroke={colors.line2} strokeWidth={2} dot={false} name="Retired" />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </figure>
         </div>
       </section>
 
@@ -379,10 +452,15 @@ export default function DashboardPage() {
                   <td className="px-6 py-4 text-right text-gray-600 dark:text-gray-400">{m.certs_generated.toLocaleString()}</td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <div className="h-1.5 w-16 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
-                        <div 
-                          className="h-full bg-yellow-400" 
-                          style={{ width: `${(m.total_kwh / (stats.total_kwh || 1)) * 100}%` }} 
+                      <div
+                        className="h-1.5 w-16 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800"
+                        role="img"
+                        aria-label={`${m.meter_name} share of total generation: ${((m.total_kwh / (stats.total_kwh || 1)) * 100).toFixed(1)} percent`}
+                      >
+                        <div
+                          className="h-full bg-yellow-400"
+                          style={{ width: `${(m.total_kwh / (stats.total_kwh || 1)) * 100}%` }}
+                          aria-hidden="true"
                         />
                       </div>
                       <span className="text-[10px] font-bold text-gray-500">

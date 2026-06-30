@@ -121,36 +121,65 @@ export function DashboardChart() {
   }
 
   const { icon, label, color } = statusConfig[status]
+  const dataSummary = data.length
+    ? `${data.length} recent readings from ${data[0].label} to ${data[data.length - 1].label}. Latest value: ${data[data.length - 1].energy.toFixed(3)} kWh.`
+    : 'No readings loaded yet.'
+  const updateMode = status === 'live'
+    ? 'Updates in real time from the meter feed.'
+    : status === 'polling'
+      ? 'Updates every 30 seconds while live feed is unavailable.'
+      : 'Waiting for meter readings.'
 
   return (
     <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-gray-500">Energy trend</p>
-          <h2 className="mt-2 text-2xl font-semibold text-gray-900">Live generation</h2>
+      <figure aria-labelledby="live-generation-title" aria-describedby="live-generation-desc">
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-gray-500">Energy trend</p>
+            <h2 id="live-generation-title" className="mt-2 text-2xl font-semibold text-gray-900">Live generation</h2>
+          </div>
+          <span className={`flex items-center gap-1.5 text-xs font-medium ${color}`} aria-live="polite">
+            {icon}
+            {label}
+          </span>
         </div>
-        <span className={`flex items-center gap-1.5 text-xs font-medium ${color}`} aria-live="polite">
-          {icon}
-          {label}
-        </span>
-      </div>
-      <div className="h-72 min-h-[18rem] w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
-            <defs>
-              <linearGradient id="energyGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.4} />
-                <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.05} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#6b7280' }} />
-            <YAxis axisLine={false} tickLine={false} tick={{ fill: '#6b7280' }} />
-            <Tooltip wrapperStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 10px 30px rgba(15, 23, 42, 0.08)' }} />
-            <Area type="monotone" dataKey="energy" stroke="#f59e0b" fill="url(#energyGradient)" strokeWidth={3} isAnimationActive={false} />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
+        <p id="live-generation-desc" className="sr-only">
+          Area chart of the most recent meter readings showing kilowatt-hours generated over time. {updateMode} {dataSummary}
+        </p>
+        <p id="live-generation-legend" className="sr-only">
+          Legend: Energy output in kWh, shown as an amber filled area.
+        </p>
+        <div
+          className="h-72 min-h-[18rem] w-full"
+          role="img"
+          aria-labelledby="live-generation-title"
+          aria-describedby="live-generation-desc live-generation-legend"
+        >
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={data} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="energyGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.4} />
+                  <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.05} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#6b7280' }} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fill: '#6b7280' }} />
+              <Tooltip wrapperStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 10px 30px rgba(15, 23, 42, 0.08)' }} />
+              <Area
+                type="monotone"
+                dataKey="energy"
+                stroke="#f59e0b"
+                fill="url(#energyGradient)"
+                strokeWidth={3}
+                isAnimationActive={false}
+                name="Energy (kWh)"
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </figure>
     </section>
   )
 }

@@ -91,16 +91,32 @@ function TallyBar({ tally }: { tally: Tally }) {
   const abstainPct = pct(tally.abstain, total)
   return (
     <div className="space-y-1.5">
-      <div className="flex h-2 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800" aria-label={`Tally: ${forPct}% for, ${againstPct}% against, ${abstainPct}% abstain`} role="img">
-        <div className="bg-green-500" style={{ width: `${forPct}%` }} />
-        <div className="bg-red-500" style={{ width: `${againstPct}%` }} />
-        <div className="bg-gray-400 dark:bg-gray-600" style={{ width: `${abstainPct}%` }} />
+      <div
+        className="flex h-2 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800"
+        aria-label={`Tally: ${forPct}% for, ${againstPct}% against, ${abstainPct}% abstain`}
+        role="img"
+      >
+        <div className="bg-green-500" style={{ width: `${forPct}%` }} aria-hidden="true" />
+        <div className="bg-red-500" style={{ width: `${againstPct}%` }} aria-hidden="true" />
+        <div className="bg-gray-400 dark:bg-gray-600" style={{ width: `${abstainPct}%` }} aria-hidden="true" />
       </div>
-      <div className="flex gap-4 text-xs text-gray-500 dark:text-gray-400">
-        <span><span className="font-medium text-green-600 dark:text-green-400">{forPct}%</span> For ({tally.for})</span>
-        <span><span className="font-medium text-red-600 dark:text-red-400">{againstPct}%</span> Against ({tally.against})</span>
-        <span><span className="font-medium text-gray-500">{abstainPct}%</span> Abstain ({tally.abstain})</span>
-      </div>
+      <ul className="flex gap-4 text-xs text-gray-500 dark:text-gray-400" aria-label="Vote tally legend">
+        <li>
+          <span aria-label={`For votes: ${forPct} percent, ${tally.for} votes`}>
+            <span className="font-medium text-green-600 dark:text-green-400">{forPct}%</span> For ({tally.for})
+          </span>
+        </li>
+        <li>
+          <span aria-label={`Against votes: ${againstPct} percent, ${tally.against} votes`}>
+            <span className="font-medium text-red-600 dark:text-red-400">{againstPct}%</span> Against ({tally.against})
+          </span>
+        </li>
+        <li>
+          <span aria-label={`Abstain votes: ${abstainPct} percent, ${tally.abstain} votes`}>
+            <span className="font-medium text-gray-500">{abstainPct}%</span> Abstain ({tally.abstain})
+          </span>
+        </li>
+      </ul>
     </div>
   )
 }
